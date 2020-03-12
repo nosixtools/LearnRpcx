@@ -1,38 +1,41 @@
 package main
 
-
 import (
-	"github.com/smallnest/rpcx/server"
 	"LearnRpcx/service"
-	"fmt"
-	"os"
 	"github.com/opentracing/opentracing-go"
-	zipkin "github.com/openzipkin-contrib/zipkin-go-opentracing"
+	"github.com/openzipkin/zipkin-go"
+	"github.com/smallnest/rpcx/server"
+	"log"
 
-
+	zipkinot "github.com/openzipkin-contrib/zipkin-go-opentracing"
+	zipkinhttp "github.com/openzipkin/zipkin-go/reporter/http"
 )
 
 func main() {
 
-	//zipkin
-	collector, err := zipkin.NewHTTPCollector("http://localhost:9411/api/v1/spans")
-	if err != nil {
-		fmt.Printf("unable to create Zipkin HTTP collector: %+v\n", err)
-		os.Exit(-1)
-	}
-	// Create our recorder.
-	recorder := zipkin.NewRecorder(collector, true, "127.0.0.1:7703", "World")
+	{
+		// set up a span reporter
+		reporter := zipkinhttp.NewReporter("http://192.168.0.110:9411/api/v2/spans")
+		defer reporter.Close()
 
-	tracer, err := zipkin.NewTracer(
-		recorder,
-		zipkin.ClientServerSameSpan(true),
-		zipkin.TraceID128Bit(true),
-	)
-	if err != nil {
-		fmt.Printf("unable to create Zipkin tracer: %+v\n", err)
-	}
+		// create our local service endpoint
+		endpoint, err := zipkin.NewEndpoint("word", "myservice.mydomain.com:80")
+		if err != nil {
+			log.Fatalf("unable to create local endpoint: %+v\n", err)
+		}
 
-	opentracing.InitGlobalTracer(tracer)
+		// initialize our tracer
+		nativeTracer, err := zipkin.NewTracer(reporter, zipkin.WithLocalEndpoint(endpoint))
+		if err != nil {
+			log.Fatalf("unable to create tracer: %+v\n", err)
+		}
+
+		// use zipkin-go-opentracing to wrap our tracer
+		tracer := zipkinot.Wrap(nativeTracer)
+
+		// optionally set as Global OpenTracing tracer instance
+		opentracing.SetGlobalTracer(tracer)
+	}
 
 	s := server.NewServer()
 	s.Register(new(service.WorldService), "")

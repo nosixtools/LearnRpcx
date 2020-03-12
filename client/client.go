@@ -1,14 +1,15 @@
 package main
 
 import (
-	"github.com/smallnest/rpcx/client"
-	"fmt"
 	"context"
-	"os"
-	"github.com/opentracing/opentracing-go"
-	zipkin "github.com/openzipkin-contrib/zipkin-go-opentracing"
+	"fmt"
 	rpcxplugins "github.com/nosixtools/rpcx-plugins/opentracing"
-	"github.com/smallnest/rpcx/log"
+	"github.com/opentracing/opentracing-go"
+	zipkinot "github.com/openzipkin-contrib/zipkin-go-opentracing"
+	"github.com/openzipkin/zipkin-go"
+	zipkinhttp "github.com/openzipkin/zipkin-go/reporter/http"
+	"github.com/smallnest/rpcx/client"
+	"log"
 )
 
 func main() {
@@ -16,28 +17,34 @@ func main() {
 	xclient := client.NewXClient("HelloService", client.Failtry, client.RandomSelect, d, client.DefaultOption)
 	defer xclient.Close()
 
+	{
+		// set up a span reporter
+		reporter := zipkinhttp.NewReporter("http://192.168.0.110:9411/api/v2/spans")
+		defer reporter.Close()
 
-	collector, err := zipkin.NewHTTPCollector("http://localhost:9411/api/v1/spans")
-	if err != nil {
-		fmt.Printf("unable to create Zipkin HTTP collector: %+v\n", err)
-		os.Exit(-1)
+		// create our local service endpoint
+		endpoint, err := zipkin.NewEndpoint("client", "myservice.mydomain.com:80")
+		if err != nil {
+			log.Fatalf("unable to create local endpoint: %+v\n", err)
+		}
+
+		// initialize our tracer
+		nativeTracer, err := zipkin.NewTracer(reporter, zipkin.WithLocalEndpoint(endpoint))
+		if err != nil {
+			log.Fatalf("unable to create tracer: %+v\n", err)
+		}
+
+		// use zipkin-go-opentracing to wrap our tracer
+		tracer := zipkinot.Wrap(nativeTracer)
+
+		// optionally set as Global OpenTracing tracer instance
+		opentracing.SetGlobalTracer(tracer)
 	}
 
-	// Create our recorder.
-	recorder := zipkin.NewRecorder(collector, true, "127.0.0.1:8080", "hello_world")
-
-	tracer, err := zipkin.NewTracer(recorder, zipkin.ClientServerSameSpan(true), zipkin.TraceID128Bit(true))
-	if err != nil {
-		fmt.Printf("unable to create Zipkin tracer: %+v\n", err)
-	}
-
-	opentracing.InitGlobalTracer(tracer)
-
-	span, ctx, err := rpcxplugins.GenerateSpanWithContext(context.Background(), "start")
+	span, ctx, _ := rpcxplugins.GenerateSpanWithContext(context.Background(), "start")
 	result := ""
 	xclient.Call(ctx, "Hello", "nosix", &result)
 	fmt.Println(result)
-	log.Info(span)
+	fmt.Printf("%+v\n", span)
 	span.Finish()
-	collector.Close()
 }
