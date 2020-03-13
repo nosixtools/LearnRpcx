@@ -42,6 +42,14 @@ func main() {
 	}
 
 	span, ctx, _ := rpcxplugins.GenerateSpanWithContext(context.Background(), "start")
+	// 设置标签
+	span.SetTag("设置标签", "标签值")
+	// 设置注释
+	span.LogKV(
+		"event", "soft error",
+		"type", "cache timeout",
+		"waited.millis", 1500)
+
 	result := ""
 	xclient.Call(ctx, "Hello", "nosix", &result)
 	fmt.Println(result)
