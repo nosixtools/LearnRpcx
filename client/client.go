@@ -1,43 +1,36 @@
 package main
 
 import (
-	"github.com/smallnest/rpcx/client"
-	"fmt"
+	"LearnRpcx/lib"
 	"context"
-	"os"
-	"github.com/opentracing/opentracing-go"
-	zipkin "github.com/openzipkin-contrib/zipkin-go-opentracing"
-	rpcxplugins "github.com/nosixtools/rpcx-plugins/opentracing"
-	"github.com/smallnest/rpcx/log"
+	"fmt"
+	"github.com/smallnest/rpcx/client"
+	"log"
 )
 
 func main() {
+
+	init := lib.Init("client")
+	defer init.Close()
+
 	d := client.NewPeer2PeerDiscovery("tcp@127.0.0.1:7702", "")
-	xclient := client.NewXClient("HelloService", client.Failtry, client.RandomSelect, d, client.DefaultOption)
+	xclient := client.NewXClient("HelloService", client.Failfast, client.RandomSelect, d, client.DefaultOption)
 	defer xclient.Close()
 
+	span, ctx, _ := lib.GenerateSpanWithContext(context.Background(), "start")
+	defer span.Finish()
 
-	collector, err := zipkin.NewHTTPCollector("http://localhost:9411/api/v1/spans")
-	if err != nil {
-		fmt.Printf("unable to create Zipkin HTTP collector: %+v\n", err)
-		os.Exit(-1)
-	}
-
-	// Create our recorder.
-	recorder := zipkin.NewRecorder(collector, true, "127.0.0.1:8080", "hello_world")
-
-	tracer, err := zipkin.NewTracer(recorder, zipkin.ClientServerSameSpan(true), zipkin.TraceID128Bit(true))
-	if err != nil {
-		fmt.Printf("unable to create Zipkin tracer: %+v\n", err)
-	}
-
-	opentracing.InitGlobalTracer(tracer)
-
-	span, ctx, err := rpcxplugins.GenerateSpanWithContext(context.Background(), "start")
+	// 设置标签
+	span.SetTag("设置标签", "标签值")
+	// 设置注释
+	span.LogKV(
+		"event", "soft error",
+		"type", "cache timeout",
+		"waited.millis", 1500)
 	result := ""
-	xclient.Call(ctx, "Hello", "nosix", &result)
+	err := xclient.Call(ctx, "Hello", "nosix", &result)
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println(result)
-	log.Info(span)
-	span.Finish()
-	collector.Close()
 }
